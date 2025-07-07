@@ -269,7 +269,6 @@ def create_resizable_chart(chart_key, chart_function):
     st.markdown(f'<div class="chart-container" style="height: {height}px;">', unsafe_allow_html=True)
     chart_function(height)
     st.markdown('</div>', unsafe_allow_html=True)
-
 def plot_bar(df, x, y, title, palette='Greens', rotate_x=30, color=None):
     fig, ax = plt.subplots(figsize=(10, 6))
     if color:
@@ -542,8 +541,6 @@ def mostrar_dashboard(df_productos, df_traspasos, df_ventas, seccion):
                     
                     # Mostrar estadísticas adicionales
                     st.info(f"📊 Análisis basado en {len(rotacion_completa)} productos con rotación calculada")
-                else:
-                    st.info("No se encontraron productos con datos completos de entrada, traspaso y venta para calcular rotación.")
             else:
                 st.info("No hay datos de entrada en almacén disponibles para calcular rotación de stock.")
 
@@ -1336,7 +1333,7 @@ def mostrar_dashboard(df_productos, df_traspasos, df_ventas, seccion):
                 else:
                     st.info("No hay datos de pendientes de entrega para mostrar.")
             else:
-                st.info("No hay productos pendientes de entrega.")
+                pass
 
             # --- Tabla de Productos Sin Familia Asignada ---
             if not df_sin_familia.empty:
@@ -1653,142 +1650,123 @@ def mostrar_dashboard(df_productos, df_traspasos, df_ventas, seccion):
             if os.path.exists(desc_path):
                 try:
                     df_desc = pd.read_excel(desc_path, engine='openpyxl')
-                    
-                    # NUEVA LISTA DE COLUMNAS DE DESCRIPCIÓN
                     desc_cols = ['MANGA', 'CUELLO', 'TEJIDO', 'DETALLE', 'ESTILO', 'CORTE']
-                    
-                    # Verificar que las columnas necesarias existen
-                    required_cols = ['ACT', 'fashion_main_description_1'] + desc_cols
-                    if all(col in df_desc.columns for col in required_cols):
-                        # --- FILTROS ---
-                        col_filter1, col_filter2 = st.columns(2)
-                        
-                        with col_filter1:
-                            # Preparamos ventas para cruzar con descripciones
-                            ventas_desc = df_ventas.copy()
-                            ventas_desc['ACT_clean'] = ventas_desc['ACT'].astype(str).str[:-1]
-
-                            ventas_con_desc_pre = ventas_desc.merge(
-                                df_desc[required_cols],
-                                left_on='ACT_clean',
-                                right_on='ACT',
-                                how='inner'
-                            )
-
-                            familias_disponibles = sorted(ventas_con_desc_pre['Familia'].dropna().unique())
-                            familia_seleccionada = st.selectbox(
-                                "Selecciona una Familia:", 
-                                familias_disponibles, 
-                                key="familia_desc_selector"
-                            )
-
-                        with col_filter2:
-                            opciones_desc = ["Descripción Completa"] + desc_cols
-                            tipo_descripcion = st.selectbox(
-                                "Selecciona Tipo de Descripción:", 
-                                opciones_desc, 
-                                key="tipo_desc_selector"
-                            )
-
-                        # --- GENERACIÓN DE DESCRIPCIONES ---
-                        if tipo_descripcion == "Descripción Completa":
-                            df_desc['Descripción Analizada'] = df_desc['fashion_main_description_1'].fillna('N/A')
+                    col_filter1, col_filter2 = st.columns(2)
+                    with col_filter1:
+                        ventas_desc = df_ventas.copy()
+                        ventas_desc['ACT_clean'] = ventas_desc['ACT'].astype(str).str[:-1]
+                        familias_disponibles = sorted(ventas_desc['Familia'].dropna().unique())
+                        familia_seleccionada = st.selectbox(
+                            "Selecciona una Familia:", 
+                            familias_disponibles, 
+                            key="familia_desc_selector"
+                        )
+                    with col_filter2:
+                        opciones_desc = ["Descripción Completa"] + desc_cols
+                        tipo_descripcion = st.selectbox(
+                            "Selecciona Tipo de Descripción:", 
+                            opciones_desc, 
+                            key="tipo_desc_selector"
+                        )
+                    # Determinar columna requerida
+                    if tipo_descripcion == "Descripción Completa":
+                        # Unir todas las columnas de descripción de manera seguida (sin separadores)
+                        desc_cols_existentes = [col for col in desc_cols if col in df_desc.columns]
+                        if desc_cols_existentes:
+                            df_desc['Descripción Analizada'] = df_desc[desc_cols_existentes].fillna('').agg(' '.join, axis=1).str.replace(' +', ' ', regex=True).str.strip()
+                            df_desc['longitud_desc'] = df_desc['Descripción Analizada'].str.len()
+                            required_cols = ['ACT'] + desc_cols_existentes
                         else:
+                            df_desc['Descripción Analizada'] = 'N/A'
+                            df_desc['longitud_desc'] = 0
+                            required_cols = ['ACT']
+                    else:
+                        required_cols = ['ACT', tipo_descripcion]
+                        if tipo_descripcion in df_desc.columns:
                             df_desc['Descripción Analizada'] = df_desc[tipo_descripcion].fillna('N/A')
-                        
-                        df_desc_clean = df_desc[['ACT', 'Descripción Analizada']].copy().dropna()
-                        
+                            df_desc['longitud_desc'] = df_desc['Descripción Analizada'].str.len()
+                        else:
+                            df_desc['Descripción Analizada'] = 'N/A'
+                            df_desc['longitud_desc'] = 0
+                    # Comprobar si existen las columnas necesarias
+                    if all(col in df_desc.columns for col in required_cols):
+                        df_desc_clean = df_desc[['ACT', 'Descripción Analizada', 'longitud_desc']].copy().dropna()
                         ventas_con_desc = ventas_desc.merge(
                             df_desc_clean,
                             left_on='ACT_clean',
                             right_on='ACT',
                             how='inner'
                         )
-                        
-                        # FILTRO POR FAMILIA
                         df_familia_desc = ventas_con_desc[ventas_con_desc['Familia'] == familia_seleccionada]
-                        
                         desc_group = df_familia_desc.groupby('Descripción Analizada').agg({
                             'Ventas Dinero': 'sum',
-                            'Cantidad': 'sum'
+                            'Cantidad': 'sum',
+                            'longitud_desc': 'first'
                         }).reset_index()
-                        
-                        # FILTRO DE DESCRIPCIONES VACÍAS
                         desc_group = desc_group[desc_group['Descripción Analizada'] != 'N/A']
                         desc_group = desc_group[desc_group['Descripción Analizada'].str.strip() != '']
-
-                        if not desc_group.empty:
-                            desc_group = desc_group.sort_values('Ventas Dinero', ascending=False)
-                            top10 = desc_group.head(10)
-                            bottom10 = desc_group.tail(10)
-
-                            # --- Side-by-side Top/Bottom 10 Descriptions ---
-                            # --- GRÁFICOS DE TOP Y BOTTOM UNO DEBAJO DEL OTRO CON ALTURA DINÁMICA ---
-
-                            # Configuración para altura dinámica
-                            altura_por_fila = 40   # Altura estimada por barra
-                            altura_minima = 400    # Altura mínima para que no quede muy apretado
-                            altura_maxima = 800    # Altura máxima para que no sea exagerado
-
-                            # Calculamos altura según la cantidad de barras
-                            altura_top = min(max(len(top10) * altura_por_fila, altura_minima), altura_maxima)
-                            altura_bottom = min(max(len(bottom10) * altura_por_fila, altura_minima), altura_maxima)
-
-                            # --- GRÁFICO TOP 10 ---
-                            viz_title(f'Top 10 en {tipo_descripcion} - {familia_seleccionada}')
-                            fig_top = px.bar(
-                                top10, 
-                                x='Ventas Dinero', 
-                                y='Descripción Analizada', 
-                                orientation='h', 
-                                color='Ventas Dinero', 
-                                color_continuous_scale=COLOR_GRADIENT,
-                                text='Cantidad'
-                            )
-                            fig_top.update_layout(
-                                showlegend=False, 
-                                height=altura_top,
-                                yaxis={'categoryorder':'total ascending', 'title': ''},
-                                margin=dict(t=30, b=0, l=0, r=0),
-                                paper_bgcolor="rgba(0,0,0,0)", 
-                                plot_bgcolor="rgba(0,0,0,0)"
-                            )
-                            fig_top.update_traces(
-                                texttemplate='%{text:,.0f} uds', 
-                                textposition='outside', 
-                                hovertemplate="Descripción: %{y}<br>Ventas: %{x:,.2f}€<br>Unidades: %{text:,.0f}<extra></extra>",
-                                opacity=0.8
-                            )
-                            st.plotly_chart(fig_top, use_container_width=True, key=f"top10_{tipo_descripcion}_{familia_seleccionada}")
-
-                            # --- GRÁFICO BOTTOM 10 ---
-                            viz_title(f'Bottom 10 en {tipo_descripcion} - {familia_seleccionada}')
-                            fig_bottom = px.bar(
-                                bottom10, 
-                                x='Ventas Dinero', 
-                                y='Descripción Analizada', 
-                                orientation='h', 
-                                color='Ventas Dinero', 
-                                color_continuous_scale=COLOR_GRADIENT,
-                                text='Cantidad'
-                            )
-                            fig_bottom.update_layout(
-                                showlegend=False, 
-                                height=altura_bottom,
-                                yaxis={'categoryorder':'total ascending', 'title': ''},
-                                margin=dict(t=30, b=0, l=0, r=0),
-                                paper_bgcolor="rgba(0,0,0,0)", 
-                                plot_bgcolor="rgba(0,0,0,0)"
-                            )
-                            fig_bottom.update_traces(
-                                texttemplate='%{text:,.0f} uds', 
-                                textposition='outside', 
-                                hovertemplate="Descripción: %{y}<br>Ventas: %{x:,.2f}€<br>Unidades: %{text:,.0f}<extra></extra>",
-                                opacity=0.8
-                            )
-                            st.plotly_chart(fig_bottom, use_container_width=True, key=f"bottom10_{tipo_descripcion}_{familia_seleccionada}")
-                        else:
-                            st.info(f"No hay datos de '{tipo_descripcion}' para la familia '{familia_seleccionada}'.")
+                        # Filtrar solo las descripciones más largas
+                        desc_group = desc_group.sort_values('longitud_desc', ascending=False)
+                        desc_group_largas = desc_group.head(30)  # Tomar las 30 más largas para asegurar variedad
+                        # Top 10 más vendidas entre las más largas
+                        top10 = desc_group_largas.sort_values('Ventas Dinero', ascending=False).head(10)
+                        # Top 10 menos vendidas entre las más largas
+                        bottom10 = desc_group_largas.sort_values('Ventas Dinero', ascending=True).head(10)
+                        altura_por_fila = 40
+                        altura_minima = 400
+                        altura_maxima = 800
+                        altura_top = min(max(len(top10) * altura_por_fila, altura_minima), altura_maxima)
+                        altura_bottom = min(max(len(bottom10) * altura_por_fila, altura_minima), altura_maxima)
+                        viz_title(f'Top 10 en {tipo_descripcion} (descripciones más largas) - {familia_seleccionada}')
+                        fig_top = px.bar(
+                            top10, 
+                            x='Ventas Dinero', 
+                            y='Descripción Analizada', 
+                            orientation='h', 
+                            color='Ventas Dinero', 
+                            color_continuous_scale=COLOR_GRADIENT,
+                            text='Cantidad'
+                        )
+                        fig_top.update_layout(
+                            showlegend=False, 
+                            height=altura_top,
+                            yaxis={'categoryorder':'total ascending', 'title': ''},
+                            margin=dict(t=30, b=0, l=0, r=0),
+                            paper_bgcolor="rgba(0,0,0,0)", 
+                            plot_bgcolor="rgba(0,0,0,0)"
+                        )
+                        fig_top.update_traces(
+                            texttemplate='%{text:,.0f} uds', 
+                            textposition='outside', 
+                            hovertemplate="Descripción: %{y}<br>Ventas: %{x:,.2f}€<br>Unidades: %{text:,.0f}<extra></extra>",
+                            opacity=0.8
+                        )
+                        st.plotly_chart(fig_top, use_container_width=True, key=f"top10_{tipo_descripcion}_{familia_seleccionada}")
+                        viz_title(f'Bottom 10 en {tipo_descripcion} (descripciones más largas) - {familia_seleccionada}')
+                        fig_bottom = px.bar(
+                            bottom10, 
+                            x='Ventas Dinero', 
+                            y='Descripción Analizada', 
+                            orientation='h', 
+                            color='Ventas Dinero', 
+                            color_continuous_scale=COLOR_GRADIENT,
+                            text='Cantidad'
+                        )
+                        fig_bottom.update_layout(
+                            showlegend=False, 
+                            height=altura_bottom,
+                            yaxis={'categoryorder':'total ascending', 'title': ''},
+                            margin=dict(t=30, b=0, l=0, r=0),
+                            paper_bgcolor="rgba(0,0,0,0)", 
+                            plot_bgcolor="rgba(0,0,0,0)"
+                        )
+                        fig_bottom.update_traces(
+                            texttemplate='%{text:,.0f} uds', 
+                            textposition='outside', 
+                            hovertemplate="Descripción: %{y}<br>Ventas: %{x:,.2f}€<br>Unidades: %{text:,.0f}<extra></extra>",
+                            opacity=0.8
+                        )
+                        st.plotly_chart(fig_bottom, use_container_width=True, key=f"bottom10_{tipo_descripcion}_{familia_seleccionada}")
                     else:
                         st.warning(f"Una o más columnas de descripción no se encontraron. Se necesitan: {required_cols}")
                 except Exception as e:
@@ -2290,18 +2268,24 @@ def mostrar_dashboard(df_productos, df_traspasos, df_ventas, seccion):
         
         # Margen bruto por unidad (promedio)
         margen_unitario_promedio = 0
+        margen_unitario_promedio_positivo = 0
         if all(col in df_ventas.columns for col in ['P.V.P.', 'Precio Coste']):
             df_ventas_temp = df_ventas.copy()
             df_ventas_temp['margen_unitario'] = df_ventas_temp['P.V.P.'] - df_ventas_temp['Precio Coste']
             margen_unitario_promedio = df_ventas_temp['margen_unitario'].mean()
+            margen_unitario_promedio_positivo = df_ventas_temp[df_ventas_temp['margen_unitario'] > 0]['margen_unitario'].mean()
         
         # Margen porcentual (promedio)
         margen_porcentual_promedio = 0
+        margen_porcentual_promedio_positivo = 0
         if all(col in df_ventas.columns for col in ['P.V.P.', 'Precio Coste']):
             df_ventas_temp = df_ventas.copy()
             df_ventas_temp['margen_unitario'] = df_ventas_temp['P.V.P.'] - df_ventas_temp['Precio Coste']
             df_ventas_temp['margen_%'] = df_ventas_temp['margen_unitario'] / df_ventas_temp['P.V.P.']
-            margen_porcentual_promedio = df_ventas_temp['margen_%'].mean() * 100
+            # Ignorar productos con P.V.P. = 0 para el promedio real
+            df_ventas_temp_validos = df_ventas_temp[df_ventas_temp['P.V.P.'] != 0]
+            margen_porcentual_promedio = df_ventas_temp_validos['margen_%'].mean() * 100
+            margen_porcentual_promedio_positivo = df_ventas_temp_validos[df_ventas_temp_validos['margen_%'] > 0]['margen_%'].mean() * 100
         
         # KPIs in HTML style like Resumen General
         st.markdown("""
@@ -2353,18 +2337,42 @@ def mostrar_dashboard(df_productos, df_traspasos, df_ventas, seccion):
                 </div>
                 <div style="display: flex; justify-content: space-between; gap: 15px;">
                     <div style="flex: 1; text-align: center; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: white;">
-                        <p style="color: #666666; font-size: 14px; margin: 0 0 5px 0;">Margen Unitario Promedio</p>
+                        <p style="color: #666666; font-size: 14px; margin: 0 0 5px 0;">Margen Unitario Promedio Solo Positivo</p>
                         <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 0;">{:.2f}€</p>
-                        <p style="color: #059669; font-size: 12px; margin: 0;">por unidad</p>
+                        <p style="color: #059669; font-size: 12px; margin: 0;">por unidad (solo positivos)</p>
                     </div>
                     <div style="flex: 1; text-align: center; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: white;">
-                        <p style="color: #666666; font-size: 14px; margin: 0 0 5px 0;">Margen % Promedio</p>
+                        <p style="color: #666666; font-size: 14px; margin: 0 0 5px 0;">Margen % Promedio Solo Positivo</p>
                         <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 0;">{:.1f}%</p>
-                        <p style="color: #059669; font-size: 12px; margin: 0;">del PVP</p>
+                        <p style="color: #059669; font-size: 12px; margin: 0;">del PVP (solo positivos)</p>
+                    </div>
+                    <div style="flex: 1; text-align: center; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: white;">
+                        <p style="color: #666666; font-size: 14px; margin: 0 0 5px 0;">Margen Unitario Promedio Real</p>
+                        <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 0;">{:.2f}€</p>
+                        <p style="color: #059669; font-size: 12px; margin: 0;">por unidad (real)</p>
+                    </div>
+                    <div style="flex: 1; text-align: center; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: white;">
+                        <p style="color: #666666; font-size: 14px; margin: 0 0 5px 0;">Margen % Promedio Real</p>
+                        <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 0;">{:.1f}%</p>
+                        <p style="color: #059669; font-size: 12px; margin: 0;">del PVP (real)</p>
                     </div>
                 </div>
             </div>
-        """.format(margen_unitario_promedio, margen_porcentual_promedio), unsafe_allow_html=True)
+        """.format(
+            margen_unitario_promedio_positivo if margen_unitario_promedio_positivo is not None else 0,
+            margen_porcentual_promedio_positivo if margen_porcentual_promedio_positivo is not None else 0,
+            margen_unitario_promedio if margen_unitario_promedio is not None else 0,
+            margen_porcentual_promedio if margen_porcentual_promedio is not None else 0
+        ), unsafe_allow_html=True)
+
+        # Tabla de depuración: productos con margen negativo
+        if all(col in df_ventas.columns for col in ['P.V.P.', 'Precio Coste']):
+            df_ventas_temp = df_ventas.copy()
+            df_ventas_temp['margen_unitario'] = df_ventas_temp['P.V.P.'] - df_ventas_temp['Precio Coste']
+            productos_margen_negativo = df_ventas_temp[df_ventas_temp['margen_unitario'] < 0]
+            if not productos_margen_negativo.empty:
+                st.markdown('### Tabla de depuración: Productos con margen negativo (PVP < Precio Coste)')
+                st.dataframe(productos_margen_negativo[['ACT', 'Descripción Familia', 'Temporada', 'Fecha Documento', 'P.V.P.', 'Precio Coste', 'margen_unitario']], use_container_width=True, hide_index=True)
 
         # ===== GRÁFICOS =====
         st.markdown("### **Análisis de Devoluciones y Temporadas**")
