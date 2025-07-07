@@ -17,8 +17,6 @@ import io
 from modelo import prepare_final_dataset_improved
 
 # Configuración estilo gráfico general (sin líneas de fondo)
-sns.set_style("white")
-sns.set_context("talk", font_scale=0.9)
 plt.rcParams.update({
     "axes.edgecolor": "#E0E0E0",
     "axes.linewidth": 0.8,
@@ -28,8 +26,7 @@ plt.rcParams.update({
     "axes.labelsize": 12,
     "xtick.color": "#666666",
     "ytick.color": "#666666",
-    "font.family": "sans-serif",
-    "font.sans-serif": ["Arial", "sans-serif"],
+    "font.family": "DejaVu Sans",
     "figure.facecolor": "white",
     "axes.facecolor": "white",
     "figure.autolayout": True,
@@ -2235,14 +2232,21 @@ def mostrar_dashboard(df_productos, df_traspasos, df_ventas, seccion):
                 talla_mas_devuelta = talla_mas_devuelta_data.index[0]
                 talla_devuelta_unidades = talla_mas_devuelta_data.iloc[0]
         
-        # Familia más devuelta
+        # Familia más devuelta (excluyendo GR.ART.FICTICIO)
         familia_mas_devuelta = "Sin datos"
         familia_devuelta_unidades = 0
+        familia_ficticio_unidades = 0
         if not devoluciones.empty:
-            familia_mas_devuelta_data = devoluciones.groupby('Familia')['Cantidad'].sum().abs().sort_values(ascending=False).head(1)
+            # Excluir 'GR.ART.FICTICIO' para el ranking principal
+            devoluciones_sin_ficticio = devoluciones[devoluciones['Familia'] != 'GR.ART.FICTICIO']
+            familia_mas_devuelta_data = devoluciones_sin_ficticio.groupby('Familia')['Cantidad'].sum().abs().sort_values(ascending=False).head(1)
             if not familia_mas_devuelta_data.empty:
                 familia_mas_devuelta = familia_mas_devuelta_data.index[0]
                 familia_devuelta_unidades = familia_mas_devuelta_data.iloc[0]
+            # Calcular valor para 'GR.ART.FICTICIO' si existe
+            ficticio_data = devoluciones[devoluciones['Familia'] == 'GR.ART.FICTICIO'].groupby('Familia')['Cantidad'].sum().abs()
+            if not ficticio_data.empty:
+                familia_ficticio_unidades = ficticio_data.iloc[0]
         
         # Rebajas 1ª (Enero y Junio)
         ventas_rebajas_1 = 0
@@ -2317,9 +2321,10 @@ def mostrar_dashboard(df_productos, df_traspasos, df_ventas, seccion):
                         <p style="color: #dc2626; font-size: 12px; margin: 0;">{:.0f} unidades</p>
                     </div>
                     <div style="flex: 1; text-align: center; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: white;">
-                        <p style="color: #666666; font-size: 14px; margin: 0 0 5px 0;">Familia más devuelta</p>
+                        <p style="color: #666666; font-size: 14px; margin: 0 0 5px 0;">Familia más devuelta (sin ficticio)</p>
                         <p style="color: #111827; font-size: 18px; font-weight: bold; margin: 0;">{}</p>
                         <p style="color: #dc2626; font-size: 12px; margin: 0;">{:.0f} unidades</p>
+                        {} <!-- Aquí mostramos el ficticio si existe -->
                     </div>
                     <div style="flex: 1; text-align: center; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: white;">
                         <p style="color: #666666; font-size: 14px; margin: 0 0 5px 0;">Rebajas 1ª (Enero/Junio)</p>
@@ -2333,9 +2338,12 @@ def mostrar_dashboard(df_productos, df_traspasos, df_ventas, seccion):
                     </div>
                 </div>
             </div>
-        """.format(tienda_mas_devoluciones, ratio_devolucion_valor, talla_mas_devuelta, talla_devuelta_unidades, 
-                   familia_mas_devuelta, familia_devuelta_unidades, ventas_rebajas_1, porcentaje_rebajas_1, 
-                   ventas_rebajas_2, porcentaje_rebajas_2), unsafe_allow_html=True)
+        """.format(
+            tienda_mas_devoluciones, ratio_devolucion_valor, talla_mas_devuelta, talla_devuelta_unidades, 
+            familia_mas_devuelta, familia_devuelta_unidades,
+            f'<p style="color: #666666; font-size: 12px; margin: 0;">GR.ART.FICTICIO: {familia_ficticio_unidades:.0f} unidades</p>' if familia_ficticio_unidades > 0 else '',
+            ventas_rebajas_1, porcentaje_rebajas_1, 
+            ventas_rebajas_2, porcentaje_rebajas_2), unsafe_allow_html=True)
         
         # Margen KPIs in separate row
         st.markdown("""
